@@ -23,12 +23,12 @@ def fit(data, init_params=[1.0, 1.0], return_res=False, raise_error=False):
     init_params: initial [alpha, beta].
 
     Return: [alpha, beta] fitted"""
-    func = lambda params: - log_likelihood_multi_cohort(params[0], params[1], data)
+    func = lambda params: - log_likelihood(params[0], params[1], data)
     res = minimize(func, init_params, method="nelder-mead", options={"xtol": 1e-8})
     result = res.x
 
     if res.status != 0:
-        result = [None, None]
+        result = np.array([None, None])
         if raise_error:
             raise Exception(res.message)
 
@@ -44,7 +44,7 @@ def log_likelihood(alpha, beta, data):
     if alpha <= 0 or beta <= 0:
         return -9999
 
-    probabilities = generate_probabilities(alpha, beta, len(data[0]))
+    probabilities = generate_probabilities(alpha, beta, max(map(len, data)))
 
     total = 0
     for i, cohort in enumerate(data, start=1):
@@ -75,26 +75,60 @@ def survivor(probabilities, t):
 def predicted_retention(alpha, beta, t):
     """Predicted retention probability at t. Function 8 in the paper.
     t is indexed similar to the paper (start at 1)"""
-    assert t > 0
     return (beta + t - 1) / (alpha + beta + t - 1)
 
 
-def predicted_survival(alpha, beta, x):
-    """Predicted survival probability, i.e. percentage of customers retained, for all t in x.
-    Function 1 in the paper. *S[0] = S0 = 1"""
+def generate_predicted_retentions(alpha, beta, max_range):
+    """Generate list of retention rates from model parameters.
+    Input:
+        alpha_beta (list): [alpha, beta]
+        max_range (int): how many retention rates to generate
+    Return: list of retention rates, indexing from 0 (r[0] = r1 in the paper)
+    *Using different indexing for this method to make it easy to compare with actual retentions.
+    """
+    if alpha is None or beta is None or max_range <= 0:
+        return None
+    def closed_func(t):
+        return predicted_retention(alpha, beta, t)
+    return list(map(closed_func, range(1, max_range + 1)))
+
+
+def predicted_survival(alpha, beta, max_range, cohort_user_count=1):
+    """Predicted survivor count for all period in max_range.
+    When cohort_user_count=1 (default), returns survival probability (percentage of customers retained).
+    Function 1 in the paper. *S[0] = S0 = 1 * cohort_user_count"""
     s = [1, predicted_retention(alpha, beta, 1)]
-    for t in range(2, x):
+    for t in range(2, max_range):
         s.append(predicted_retention(alpha, beta, t) * s[t - 1])
+    s = list(map(lambda x: x * cohort_user_count, s))
     return s
 
 
 def derl(alpha, beta, d, n):
     """discounted expected residual lifetime from "Customer-Base Valuation in a Contractual Setting: The Perils of
     Ignoring Heterogeneity" (Fader and Hardie 2009)
-    n is indexed from 1 (similar to the paper)"""
+    n is the count of periods the cohort has (cohorts with only period 0 has 1 period)"""
     return (beta + n - 1) / (alpha + beta + n - 1) * hyp2f1(
         1, beta + n, alpha + beta + n, 1 / (1 + d)
     )
+
+
+def calculate_diff_with_lag_1(row):
+    a = np.array(row)
+    b = a[1:].copy()
+    b.resize(len(a))
+    return b / a
+
+
+def calculate_retention_rates(data):
+    """Calculate retention_rates from multi_cohort data"""
+    return list(map(calculate_diff_with_lag_1, data))
+
+
+def smape(actual, predicted):
+    """Calculate SMAPE from 2 list/array of data.
+    Output * 100% = % difference"""
+    return np.average(2 * np.abs(np.subtract(actual, predicted)) / (np.abs(actual) + np.abs(predicted)))
 
 
 def test_generate_probabilities():
