@@ -78,7 +78,7 @@ def predicted_retention(alpha, beta, t):
     return (beta + t - 1) / (alpha + beta + t - 1)
 
 
-def generate_predicted_retentions(alpha, beta, max_range):
+def generate_predicted_retentions_x0(alpha, beta, max_range):
     """Generate list of retention rates from model parameters.
     Input:
         alpha_beta (list): [alpha, beta]
@@ -88,9 +88,7 @@ def generate_predicted_retentions(alpha, beta, max_range):
     """
     if alpha is None or beta is None or max_range <= 0:
         return None
-    def closed_func(t):
-        return predicted_retention(alpha, beta, t)
-    return list(map(closed_func, range(1, max_range + 1)))
+    return [predicted_retention(alpha, beta, t) for t in range(1, max_range + 1)]
 
 
 def predicted_survival(alpha, beta, max_range, cohort_user_count=1):
@@ -102,6 +100,14 @@ def predicted_survival(alpha, beta, max_range, cohort_user_count=1):
         s.append(predicted_retention(alpha, beta, t) * s[t - 1])
     s = list(map(lambda x: x * cohort_user_count, s))
     return s
+
+
+def generate_predicted_survival_x0(alpha, beta, max_range, cohort_user_count=1):
+    """Same as predicted_survival, but using different indexing for this method
+    to make it easy to compare with actual retentions."""
+    if alpha is None or beta is None or max_range <= 0:
+        return None
+    return predicted_survival(alpha, beta, max_range + 1, cohort_user_count)[1:]
 
 
 def derl(alpha, beta, d, n):
@@ -129,6 +135,12 @@ def smape(actual, predicted):
     """Calculate SMAPE from 2 list/array of data.
     Output * 100% = % difference"""
     return np.average(2 * np.abs(np.subtract(actual, predicted)) / (np.abs(actual) + np.abs(predicted)))
+
+
+def higher_prediction_ratio(actual, predicted):
+    """Take 2 list of numbers, return proportion of predicted that are higher than actual"""
+    b = np.array(predicted) > np.array(actual)
+    return sum(b) / len(b)
 
 
 def test_generate_probabilities():
